@@ -47,31 +47,31 @@ void test_prompt_encodings() {
 
     // test 0 (test the empty string) (I added this as a simple case)
     char *prompt0 = "";
-    int expected_tokens0[] = {1};
+    int expected_tokens0[] = {128000};
     test_prompt_encoding(&tokenizer, prompt0, expected_tokens0, sizeof(expected_tokens0) / sizeof(int));
 
     // the tests below are taken from the Meta Llama 2 repo example code
     // https://github.com/facebookresearch/llama/blob/main/example_text_completion.py
-    // and the expected tokens come from me breaking in the debugger in Python
+    // I updated the token ids to match the llama3.2 tokenizer
 
     // test 1
     char *prompt = "I believe the meaning of life is";
-    int expected_tokens[] = {1, 306, 4658, 278, 6593, 310, 2834, 338};
+    int expected_tokens[] = {128000, 40, 4510, 279, 7438, 315, 2324, 374};
     test_prompt_encoding(&tokenizer, prompt, expected_tokens, sizeof(expected_tokens) / sizeof(int));
 
     // test 2
     char* prompt2 = "Simply put, the theory of relativity states that ";
-    int expected_tokens2[] = {1, 3439, 17632, 1925, 29892, 278, 6368, 310, 14215, 537, 5922, 393, 29871};
+    int expected_tokens2[] = {128000, 61346, 2231, 11, 279, 10334, 315, 1375, 44515, 5415, 430, 220};
     test_prompt_encoding(&tokenizer, prompt2, expected_tokens2, sizeof(expected_tokens2) / sizeof(int));
 
     // test 3
     char* prompt3 = "A brief message congratulating the team on the launch:\n\n        Hi everyone,\n\n        I just ";
-    int expected_tokens3[] = {1, 319, 11473, 2643, 378, 629, 271, 18099, 278, 3815, 373, 278, 6826, 29901, 13, 13, 4706, 6324, 14332, 29892, 13, 13, 4706, 306, 925, 29871};
+    int expected_tokens3[] = {128000, 32, 10015, 1984, 40588, 15853, 279, 2128, 389, 279, 7195, 1473, 286, 21694, 5127, 3638, 286, 358, 1120, 220};
     test_prompt_encoding(&tokenizer, prompt3, expected_tokens3, sizeof(expected_tokens3) / sizeof(int));
 
     // test 4
     char* prompt4 = "Translate English to French:\n\n        sea otter => loutre de mer\n        peppermint => menthe poivrée\n        plush girafe => girafe peluche\n        cheese =>";
-    int expected_tokens4[] = {1, 4103, 9632, 4223, 304, 5176, 29901, 13, 13, 4706, 7205, 4932, 357, 1149, 301, 449, 276, 316, 2778, 13, 4706, 1236, 407, 837, 524, 1149, 6042, 354, 772, 440, 29878, 1318, 13, 4706, 715, 1878, 330, 3055, 1725, 1149, 330, 3055, 1725, 4639, 28754, 13, 4706, 923, 968, 1149};
+    int expected_tokens4[] = {128000, 28573, 6498, 311, 8753, 1473, 286, 9581, 14479, 466, 591, 326, 412, 265, 409, 4809, 198, 286, 83804, 94932, 591, 11540, 383, 3273, 58866, 8047, 198, 286, 72779, 41389, 5763, 591, 41389, 5763, 12077, 34927, 198, 286, 17604, 591};
     test_prompt_encoding(&tokenizer, prompt4, expected_tokens4, sizeof(expected_tokens4) / sizeof(int));
 
     // memory and file handles cleanup
