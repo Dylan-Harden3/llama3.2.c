@@ -67,7 +67,7 @@ testc:
 VERBOSITY ?= 0
 .PHONY: testcc
 testcc:
-	$(CC) -DVERBOSITY=$(VERBOSITY) -O3 -o testc test.c -lm
+	$(CC) -DVERBOSITY=$(VERBOSITY) -O3 -o testc test.c -lm -lpcre
 	./testc
 
 .PHONY: clean
