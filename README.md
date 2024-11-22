@@ -1,5 +1,5 @@
 ## llama2.c
-
+note for dylan: sudo apt install libpcre3 libpcre3-dev
 <p align="center">
   <img src="assets/llama_cute.jpg" width="300" height="300" alt="Cute Llama">
 </p>
