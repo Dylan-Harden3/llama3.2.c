@@ -5,7 +5,7 @@ CC = gcc
 # the most basic way of building that is most likely to work on most systems
 .PHONY: run
 run: run.c
-	$(CC) -O3 -o run run.c -lm
+	$(CC) -O3 -o run run.c -lm -lpcre 
 	$(CC) -O3 -o runq runq.c -lm
 
 # useful for a debug build, can then e.g. analyze with valgrind, example:

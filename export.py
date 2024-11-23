@@ -464,13 +464,6 @@ def load_hf_model(model_path):
     model.tok_embeddings.weight = nn.Parameter(hf_dict['model.embed_tokens.weight'])
     model.norm.weight = nn.Parameter(hf_dict['model.norm.weight'])
 
-    # Llama 3.2 uses GQA so we need to repeat the KV heads
-    # In Transformers they do it in the forward pass, see: https://github.com/huggingface/transformers/blob/b132c1703eb1c8bd9dfa4ad6a9be2bfd6ef819e9/src/transformers/models/llama/modeling_llama.py#L346
-    # I'm just gonna do it once in the export so I dont have to change the vanilla attention in run.c
-    def repeat_kv(w):
-        w = w.view(config.n_kv_heads, hf_model.config.head_dim, -1)
-        return w.repeat_interleave(config.n_heads // config.n_kv_heads, dim=0).view(config.n_heads * hf_model.config.head_dim, -1)
-
     # huggingface permutes WQ and WK, this function reverses it
     def permute_reverse(w, n_heads=config.n_heads, dim1=config.dim, dim2=config.dim):
         return w.view(n_heads, 2, dim1 // n_heads // 2, dim2).transpose(1, 2).reshape(dim1, dim2)
@@ -480,8 +473,8 @@ def load_hf_model(model_path):
         layer.attention_norm.weight = nn.Parameter(hf_dict[f'model.layers.{i}.input_layernorm.weight'])
         layer.attention.wq.weight = nn.Parameter(permute_reverse(hf_dict[f'model.layers.{i}.self_attn.q_proj.weight']))
         k_proj = hf_dict[f'model.layers.{i}.self_attn.k_proj.weight']
-        layer.attention.wk.weight = nn.Parameter(repeat_kv(permute_reverse(k_proj, n_heads=config.n_kv_heads, dim1=k_proj.shape[0], dim2=k_proj.shape[1])))
-        layer.attention.wv.weight = nn.Parameter(repeat_kv(hf_dict[f'model.layers.{i}.self_attn.v_proj.weight']))
+        layer.attention.wk.weight = nn.Parameter(permute_reverse(k_proj, n_heads=config.n_kv_heads, dim1=k_proj.shape[0], dim2=k_proj.shape[1]))
+        layer.attention.wv.weight = nn.Parameter(hf_dict[f'model.layers.{i}.self_attn.v_proj.weight'])
         layer.attention.wo.weight = nn.Parameter(hf_dict[f'model.layers.{i}.self_attn.o_proj.weight'])
         layer.ffn_norm.weight = nn.Parameter(hf_dict[f'model.layers.{i}.post_attention_layernorm.weight'])
         layer.feed_forward.w1.weight = nn.Parameter(hf_dict[f'model.layers.{i}.mlp.gate_proj.weight'])
