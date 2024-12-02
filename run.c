@@ -913,12 +913,13 @@ void chat(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler,
                 // otherwise get user prompt from stdin
                 read_stdin("User: ", user_prompt, sizeof(user_prompt));
             }
-            // render user/system prompts into the Llama 2 Chat schema
+            // render user/system prompts into the Llama 3 Chat schema
+            // https://www.llama.com/docs/model-cards-and-prompt-formats/meta-llama-3/
             if (pos == 0 && system_prompt[0] != '\0') {
-                char system_template[] = "[INST] <<SYS>>\n%s\n<</SYS>>\n\n%s [/INST]";
+                char system_template[] = "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n%s<|eot_id|><|start_header_id|>user<|end_header_id|>\n\n%s<|eot_id|><|start_header_id|>assistant<|end_header_id|>";
                 sprintf(rendered_prompt, system_template, system_prompt, user_prompt);
             } else {
-                char user_template[] = "[INST] %s [/INST]";
+                char user_template[] = "<|start_header_id|>user<|end_header_id|>\n\n%s<|eot_id|><|start_header_id|>assistant<|end_header_id|>";
                 sprintf(rendered_prompt, user_template, user_prompt);
             }
             // encode the rendered prompt into tokens
@@ -936,15 +937,15 @@ void chat(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler,
             // otherwise use the next token sampled from previous turn
             token = next;
         }
-        // EOS (=2) token ends the Assistant turn
-        if (token == 2) { user_turn = 1; }
+        // EOS (=128009) token ends the Assistant turn
+        if (token == 128009) { user_turn = 1; }
 
         // forward the transformer to get logits for the next token
         float* logits = forward(transformer, token, pos);
         next = sample(sampler, logits);
         pos++;
 
-        if (user_idx >= num_prompt_tokens && next != 2) {
+        if (user_idx >= num_prompt_tokens && next != 128009) {
             // the Assistant is responding, so print its output
             char* piece = decode(tokenizer, token, next);
             safe_printf(piece); // same as printf("%s", piece), but skips "unsafe" bytes
