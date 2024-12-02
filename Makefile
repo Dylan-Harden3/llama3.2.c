@@ -6,13 +6,13 @@ CC = gcc
 .PHONY: run
 run: run.c
 	$(CC) -O3 -o run run.c -lm -lpcre 
-	$(CC) -O3 -o runq runq.c -lm
+	$(CC) -O3 -o runq runq.c -lm -lpcre
 
 # useful for a debug build, can then e.g. analyze with valgrind, example:
 # $ valgrind --leak-check=full ./run out/model.bin -n 3
 rundebug: run.c
-	$(CC) -g -o run run.c -lm
-	$(CC) -g -o runq runq.c -lm
+	$(CC) -g -o run run.c -lm -lpcre
+	$(CC) -g -o runq runq.c -lm -lpcre
 
 # https://gcc.gnu.org/onlinedocs/gcc/Optimize-Options.html
 # https://simonbyrne.github.io/notes/fastmath/
@@ -25,16 +25,16 @@ rundebug: run.c
 # In our specific application this is *probably* okay to use
 .PHONY: runfast
 runfast: run.c
-	$(CC) -Ofast -o run run.c -lm
-	$(CC) -Ofast -o runq runq.c -lm
+	$(CC) -Ofast -o run run.c -lm -lpcre
+	$(CC) -Ofast -o runq runq.c -lm -lpcre
 
 # additionally compiles with OpenMP, allowing multithreaded runs
 # make sure to also enable multiple threads when running, e.g.:
 # OMP_NUM_THREADS=4 ./run out/model.bin
 .PHONY: runomp
 runomp: run.c
-	$(CC) -Ofast -fopenmp -march=native run.c  -lm  -o run
-	$(CC) -Ofast -fopenmp -march=native runq.c  -lm  -o runq
+	$(CC) -Ofast -fopenmp -march=native run.c -lpcre -lm  -o run
+	$(CC) -Ofast -fopenmp -march=native runq.c -lpcre -lm  -o runq
 
 .PHONY: win64
 win64:
