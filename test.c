@@ -91,6 +91,18 @@ void test_prompt_encodings() {
     int expected_tokens8[] = {128000, 3077, 2751, 6155, 4109, 11, 9167, 956, 584, 30};
     test_prompt_encoding(&tokenizer, prompt8, expected_tokens8, sizeof(expected_tokens8) / sizeof(int));
 
+    char* prompt9 = "<|start_header_id|>system<|end_header_id|>\n\nYou are a helpful AI assistant for travel tips and recommendations<|eot_id|><|start_header_id|>user<|end_header_id|>\n\nWhat can you help me with?<|eot_id|><|start_header_id|>assistant<|end_header_id|>";
+    int expected_tokens9[] = {128000, 128006, 9125, 128007, 271, 2675, 527, 264, 11190, 15592, 18328, 369, 5944, 10631, 323, 19075, 128009, 128006, 882, 128007, 271, 3923, 649, 499, 1520, 757, 449, 30, 128009, 128006, 78191, 128007};
+    test_prompt_encoding(&tokenizer, prompt9, expected_tokens9, sizeof(expected_tokens9) / sizeof(int));
+
+    char* prompt10 = "<|not_a_special_token|><|this_should_split_normally|>";
+    int expected_tokens10[] = {128000, 27, 91, 1962, 4404, 42729, 6594, 91, 1822, 91, 576, 44478, 17489, 19731, 750, 91, 29};
+    test_prompt_encoding(&tokenizer, prompt10, expected_tokens10, sizeof(expected_tokens10) / sizeof(int));
+
+    char* prompt11 = "<|reserved_special_token_0|><|reserved_special_token_125|><|reserved_special_token_247|><|reserved_special_token_777|>";
+    int expected_tokens11[] = {128000, 128002, 128130, 128252, 27, 91, 52202, 42729, 6594, 62, 15831, 91, 29};
+    test_prompt_encoding(&tokenizer, prompt11, expected_tokens11, sizeof(expected_tokens11) / sizeof(int));
+
     // memory and file handles cleanup
     free_tokenizer(&tokenizer);
 }

@@ -450,61 +450,6 @@ int str_lookup(char *str, TokenIndex *sorted_vocab, int vocab_size) {
     return res != NULL ? res->id : -1;
 }
 
-char** regex_split(const char *text, const char *regex, int *splits) {
-    // force tokenzation splits in text according to regex
-    const char *error;
-    int erroffset;
-    int ovector[30];
-    pcre *re;
-
-    re = pcre_compile(regex, PCRE_UTF8 | PCRE_UCP | PCRE_CASELESS, &error, &erroffset,NULL);
-
-    if (re == NULL) {
-        fprintf(stderr, "PCRE regex compilation failed %d: %s\n", erroffset, error);
-        return NULL;
-    }
-
-    // malloc space for the splits, start with 10
-    char **sequences = malloc(10 * sizeof(char *));
-    *splits = 0;
-
-    const char *text_left = text;
-    int len_text = strlen(text);
-    int offset = 0;
-    int rc;
-
-    while ((rc = pcre_exec(re, NULL, text, len_text, offset, 0, ovector, 30 )) >= 0) {
-
-        // find the start and end of the match
-        int start = ovector[0];
-        int end = ovector[1];
-        int seq_len = end - start;
-
-        // copy match to sequences
-        if (seq_len > 0) {
-            sequences[*splits] = strndup(text + start, seq_len);
-            (*splits)++;
-        }
-
-        // realloc more space for sequences if we ran out
-        if (*splits >= 10) {
-            sequences = realloc(sequences, (*splits + 10) * sizeof(char *));
-        }
-
-        // move forward to look for more matches
-        offset = end;
-    }
-
-    // if there is text left over that wasnt matched, add it
-    if (offset < len_text) {
-        sequences[*splits] = strdup(text + offset);
-        (*splits)++;
-    }
-
-    pcre_free(re);
-    return sequences;
-}
-
 void encode(Tokenizer* t, char *text, int8_t bos, int8_t eos, int *tokens, int *n_tokens) {
     // encode the string text (input) into an upper-bound preallocated tokens[] array
     // bos != 0 means prepend the BOS token (=1), eos != 0 means append the EOS token (=2)
@@ -524,7 +469,7 @@ void encode(Tokenizer* t, char *text, int8_t bos, int8_t eos, int *tokens, int *
     // *2 for concat, +1 for null terminator +2 for UTF8 (in case max_token_length is 1)
     char* str_buffer = malloc((t->max_token_length*2 +1 +2) * sizeof(char));
     size_t str_len = 0;
-    
+
     // start at 0 tokens
     *n_tokens = 0;
 
@@ -532,115 +477,162 @@ void encode(Tokenizer* t, char *text, int8_t bos, int8_t eos, int *tokens, int *
     if (bos) tokens[(*n_tokens)++] = 128000;
 
     // regex to force splits from the Meta Llama 3 repo (https://github.com/meta-llama/llama3/blob/main/llama/tokenizer.py): 
-    int splits = 0;
-    const char* regex = "(?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\r\n\\p{L}\\p{N}]?\\p{L}+|\\p{N}{1,3}| ?[^\\s\\p{L}\\p{N}]+[\r\n]*|\\s*[\r\n]+|\\s+(?!\\S)|\\s+";
-    char** sequences = regex_split(text, regex, &splits);
+    const char* normal_regex = "(?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\r\n\\p{L}\\p{N}]?\\p{L}+|\\p{N}{1,3}| ?[^\\s\\p{L}\\p{N}]+[\r\n]*|\\s*[\r\n]+|\\s+(?!\\S)|\\s+";
+    // regex for special tokens ex. <|eot_id|>, <|start_header_id|> etc
+    // in the tiktoken code its just all of the specail tokens "or"ed together (https://github.com/openai/tiktoken/blob/main/src/lib.rs#L441)
+    // TODO: add this in tokenizer export
+    const char *special_regex = "<\\|begin_of_text\\|>|<\\|end_of_text\\|>|<\\|start_header_id\\|>|<\\|end_header_id\\|>|<\\|eot_id\\|>|<\\|reserved_special_token_([0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|250)\\|>";
 
-    // run BPE on each regex split independently
-    for (int i = 0; i < splits; i++) {
-        char *sequence = sequences[i];
-        int split_tokens[1024];
-        int split_n_tokens = 0;
+    const char *error;
+    int erroffset;
+    pcre *re_special = pcre_compile(special_regex, 0, &error, &erroffset, NULL);
+    pcre *re_normal = pcre_compile(normal_regex, PCRE_UTF8 | PCRE_UCP | PCRE_CASELESS, &error, &erroffset, NULL);
 
-        strcpy(str_buffer, sequence);
-
-        // if the whole split already forms a token, dont run BPE and just use it
-        int full_id = str_lookup(str_buffer, t->sorted_vocab, t->vocab_size);
-        if (full_id != -1) {
-            tokens[(*n_tokens)++] = full_id;
-            free(sequence);
-            continue;
-        }
-
-        // Okay UTF-8 time. This will get messy. Here is the reference from Wikipedia:
-        // Code point ↔ UTF-8 conversion
-        // First code point	Last code point	Byte 1	Byte 2	Byte 3	Byte 4
-        // U+0000	U+007F	    0xxxxxxx
-        // U+0080	U+07FF	    110xxxxx	10xxxxxx
-        // U+0800	U+FFFF	    1110xxxx	10xxxxxx	10xxxxxx
-        // U+10000	U+10FFFF    11110xxx	10xxxxxx	10xxxxxx	10xxxxxx
-        // process the raw (UTF-8) byte sequence of the input string
-        for (char *c = sequence; *c != '\0'; c++) {
-            // reset buffer if the current byte is ASCII or a leading byte
-            // 0xC0 is 11000000, so (*c & 0xC0) keeps the first 2 bits and zeros the rest
-            // 0x80 is 10000000
-            // in UTF-8, all continuation bytes start with "10" in first two bits
-            // so in English this is: "if this byte is not a continuation byte"
-            if ((*c & 0xC0) != 0x80) {
-                // this byte must be either a leading byte (11...) or an ASCII char (0x...)
-                // => reset our location, as we're starting a new UTF-8 codepoint
-                str_len = 0;
-            }
-
-            // append the current byte to the buffer
-            str_buffer[str_len++] = *c; // ++ is post-increment, incremented after this line
-            str_buffer[str_len] = '\0';
-
-            // while the next character is a continuation byte, continue appending
-            // but if there are too many of them, just stop to avoid overruning str_buffer size.
-            if ((*(c+1) & 0xC0) == 0x80 && str_len < 4) {
-                continue;
-            }
-            // ok c+1 is not a continuation byte, so we've read in a full codepoint
-            int id = str_lookup(str_buffer, t->sorted_vocab, t->vocab_size);
-            if (id != -1) {
-                // we found this codepoint in vocab, add it as a token
-                split_tokens[split_n_tokens++] = id;
-            } else {
-                // byte_fallback encoding: just encode each byte as a token
-                // +3 is here because the first 3 vocab elements are <unk>, <s>, </s>
-                // so the individual bytes only start at index 3
-                for (int j=0; j < str_len; j++) {
-                    split_tokens[split_n_tokens++] = (unsigned char)str_buffer[j] + 3;
-                }
-            }
-            str_len = 0; // protect against a sequence of stray UTF8 continuation bytes
-        }
-
-        // merge the best consecutive pair each iteration, according the scores in vocab_scores
-        while (1) {
-            float best_score = 1e10;
-            int best_id = -1;
-            int best_idx = -1;
-
-            for (int j = 0; j < split_n_tokens - 1; j++) {
-                // check if we can merge the pair (tokens[i], tokens[i+1])
-                sprintf(str_buffer, "%s%s", t->vocab[split_tokens[j]], t->vocab[split_tokens[j + 1]]);
-                int id = str_lookup(str_buffer, t->sorted_vocab, t->vocab_size);
-
-                if (id != -1 && t->vocab_scores[id] < best_score) {
-                    // this merge pair exists in vocab! record its score and position
-                    best_score = t->vocab_scores[id];
-                    best_id = id;
-                    best_idx = j;
-                }
-            }
-
-            if (best_idx == -1) {
-                break; // we couldn't find any more pairs to merge, so we're done
-            }
-
-            // merge the consecutive pair (best_idx, best_idx+1) into new token best_id
-            split_tokens[best_idx] = best_id;
-            // delete token at position best_idx+1, shift the entire sequence back 1
-            for (int j = best_idx + 1; j < split_n_tokens - 1; j++) {
-                split_tokens[j] = split_tokens[j + 1];
-            }
-            split_n_tokens--; // token length decreased
-        }
-
-        // add the tokens from this split to the output tokens sequence
-        for (int j = 0; j < split_n_tokens; j++) {
-            tokens[(*n_tokens)++] = split_tokens[j];
-        }
-        free(sequence);
+    if (re_special == NULL || re_normal == NULL) {
+        fprintf(stderr, "Failed to compile regex: %s\n", error);
+        exit(EXIT_FAILURE);
     }
 
-    // add optional EOS (=2) token, if desired
+    size_t idx = 0;
+    size_t text_len = strlen(text);
+
+    // inspired from the tiktoken code: https://github.com/openai/tiktoken/blob/main/src/lib.rs#L216
+    while (idx < text_len) {
+        int ovector[512];
+        int special_match = pcre_exec(re_special, NULL, text + idx, text_len - idx, 0, 0, ovector, 512);
+        int special_match_len = ovector[1] - ovector[0];
+
+        size_t end = (special_match >= 0) ? idx + ovector[0] : text_len;
+
+        // proces the tokens up to the start of the next special token, or end if there is none
+        while (idx < end) {
+            int normal_match = pcre_exec(re_normal, NULL, text + idx, end - idx, 0, 0, ovector, 512);
+            if (normal_match < 0) break;
+
+            size_t normal_match_len = ovector[1] - ovector[0];
+            char matched_str[normal_match_len+1];
+            strncpy(matched_str, text + idx, normal_match_len);
+            matched_str[normal_match_len] = '\0';
+
+            int token_id = str_lookup(matched_str, t->sorted_vocab, t->vocab_size);
+
+            // if the split already forms a token, dont run BPE and just use it
+            if (token_id != -1) {
+                tokens[(*n_tokens)++] = token_id;
+            } else {
+                // BPE
+                int split_tokens[1024];
+                int split_n_tokens = 0;
+                char* sequence = matched_str;
+
+                strcpy(str_buffer, sequence);
+
+                // Okay UTF-8 time. This will get messy. Here is the reference from Wikipedia:
+                // Code point ↔ UTF-8 conversion
+                // First code point	Last code point	Byte 1	Byte 2	Byte 3	Byte 4
+                // U+0000	U+007F	    0xxxxxxx
+                // U+0080	U+07FF	    110xxxxx	10xxxxxx
+                // U+0800	U+FFFF	    1110xxxx	10xxxxxx	10xxxxxx
+                // U+10000	U+10FFFF    11110xxx	10xxxxxx	10xxxxxx	10xxxxxx
+                // process the raw (UTF-8) byte sequence of the input string
+                size_t str_len = 0;
+                for (char *c = sequence; *c != '\0'; c++) {
+                    // reset buffer if the current byte is ASCII or a leading byte
+                    // 0xC0 is 11000000, so (*c & 0xC0) keeps the first 2 bits and zeros the rest
+                    // 0x80 is 10000000
+                    // in UTF-8, all continuation bytes start with "10" in first two bits
+                    // so in English this is: "if this byte is not a continuation byte"
+                    if ((*c & 0xC0) != 0x80) {
+                        // this byte must be either a leading byte (11...) or an ASCII char (0x...)
+                        // => reset our location, as we're starting a new UTF-8 codepoint
+                        str_len = 0;
+                    }
+
+                    // append the current byte to the buffer
+                    str_buffer[str_len++] = *c; // ++ is post-increment, incremented after this line
+                    str_buffer[str_len] = '\0';
+
+                    // while the next character is a continuation byte, continue appending
+                    // but if there are too many of them, just stop to avoid overruning str_buffer size.
+                    if ((*(c+1) & 0xC0) == 0x80 && str_len < 4) {
+                        continue;
+                    }
+                    // ok c+1 is not a continuation byte, so we've read in a full codepoint
+                    int id = str_lookup(str_buffer, t->sorted_vocab, t->vocab_size);
+                    if (id != -1) {
+                        // we found this codepoint in vocab, add it as a token
+                        split_tokens[split_n_tokens++] = id;
+                    } else {
+                        // byte_fallback encoding: just encode each byte as a token
+                        for (int j=0; j < str_len; j++) {
+                            split_tokens[split_n_tokens++] = (unsigned char)str_buffer[j];
+                        }
+                    }
+                    str_len = 0; // protect against a sequence of stray UTF8 continuation bytes
+                }
+
+                // merge the best consecutive pair each iteration, according the scores in vocab_scores
+                while (1) {
+                    float best_score = 1e10;
+                    int best_id = -1;
+                    int best_idx = -1;
+
+                    for (int j = 0; j < split_n_tokens - 1; j++) {
+                        // check if we can merge the pair (tokens[i], tokens[i+1])
+                        sprintf(str_buffer, "%s%s", t->vocab[split_tokens[j]], t->vocab[split_tokens[j + 1]]);
+                        int id = str_lookup(str_buffer, t->sorted_vocab, t->vocab_size);
+
+                        if (id != -1 && t->vocab_scores[id] < best_score) {
+                            // this merge pair exists in vocab! record its score and position
+                            best_score = t->vocab_scores[id];
+                            best_id = id;
+                            best_idx = j;
+                        }
+                    }
+
+                    if (best_idx == -1) {
+                        break; // we couldn't find any more pairs to merge, so we're done
+                    }
+
+                    // merge the consecutive pair (best_idx, best_idx+1) into new token best_id
+                    split_tokens[best_idx] = best_id;
+                    // delete token at position best_idx+1, shift the entire sequence back 1
+                    for (int j = best_idx + 1; j < split_n_tokens - 1; j++) {
+                        split_tokens[j] = split_tokens[j + 1];
+                    }
+                    split_n_tokens--; // token length decreased
+                }
+
+                // add the tokens from this split to the output tokens sequence
+                for (int j = 0; j < split_n_tokens; j++) {
+                    tokens[(*n_tokens)++] = split_tokens[j];
+                }
+            }
+            // move position past this matched sequence
+            idx += normal_match_len;
+        }
+
+        // now add the special token if one was found
+        if (special_match >= 0) {
+            char matched_str[special_match_len + 1];
+            strncpy(matched_str, text + idx, special_match_len);
+            matched_str[special_match_len] = '\0';
+
+            int special_token_id = str_lookup(matched_str, t->sorted_vocab, t->vocab_size);
+            if (special_token_id != -1) {
+                tokens[(*n_tokens)++] = special_token_id;
+            }
+
+            idx += special_match_len;
+        }
+    }
+
+    // add optional EOS (=128001) token, if desired
     if (eos) tokens[(*n_tokens)++] = 128001;
 
     free(str_buffer);
-    free(sequences);
+    pcre_free(re_special);
+    pcre_free(re_normal);
 }
 
 // ----------------------------------------------------------------------------
@@ -916,7 +908,7 @@ void chat(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler,
             // render user/system prompts into the Llama 3 Chat schema
             // https://www.llama.com/docs/model-cards-and-prompt-formats/meta-llama-3/
             if (pos == 0 && system_prompt[0] != '\0') {
-                char system_template[] = "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n%s<|eot_id|><|start_header_id|>user<|end_header_id|>\n\n%s<|eot_id|><|start_header_id|>assistant<|end_header_id|>";
+                char system_template[] = "<|start_header_id|>system<|end_header_id|>\n\n%s<|eot_id|><|start_header_id|>user<|end_header_id|>\n\n%s<|eot_id|><|start_header_id|>assistant<|end_header_id|>";
                 sprintf(rendered_prompt, system_template, system_prompt, user_prompt);
             } else {
                 char user_template[] = "<|start_header_id|>user<|end_header_id|>\n\n%s<|eot_id|><|start_header_id|>assistant<|end_header_id|>";
@@ -937,8 +929,8 @@ void chat(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler,
             // otherwise use the next token sampled from previous turn
             token = next;
         }
-        // EOS (=128009) token ends the Assistant turn
-        if (token == 128009) { user_turn = 1; }
+        // <|eot_id|> (=128009) token ends the Assistant turn
+        if (token == 128009 && user_idx == num_prompt_tokens) { user_turn = 1; }
 
         // forward the transformer to get logits for the next token
         float* logits = forward(transformer, token, pos);
