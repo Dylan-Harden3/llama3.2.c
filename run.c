@@ -875,7 +875,8 @@ void chat(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler,
     int num_prompt_tokens = 0;
     int* prompt_tokens = (int*)malloc(1152 * sizeof(int));
     int user_idx;
-
+    
+    long start = 0;  // used to time our code, only initialized after first iteration
     // start the main loop
     int8_t user_turn = 1; // user starts
     int next;        // will store the next token in the sequence
@@ -942,10 +943,17 @@ void chat(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler,
             char* piece = decode(tokenizer, token, next);
             safe_printf(piece); // same as printf("%s", piece), but skips "unsafe" bytes
             fflush(stdout);
+	    // init the timer here because the first iteration can be slower
+	    if (start == 0) { start = time_in_ms(); }
         }
         if (next == 2) { printf("\n"); }
     }
     printf("\n");
+    // report achieved tok/s (pos-1 because the timer starts after first iteration)
+    if (pos > 1) {
+        long end = time_in_ms();
+        fprintf(stderr, "achieved tok/s: %f\n", (pos-1) / (double)(end-start)*1000);
+    }
     free(prompt_tokens);
 }
 
