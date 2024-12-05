@@ -1050,22 +1050,23 @@ void chat(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler,
             token = next;
         }
         // <|eot_id|> (=128009) token ends the Assistant turn
-        if (token == 128009 && user_idx == num_prompt_tokens) { user_turn = 1; }
-
-        // forward the transformer to get logits for the next token
+        if ((token == 128009 || token == 128001) && user_idx == num_prompt_tokens) { user_turn = 1; }
+        
+	    // forward the transformer to get logits for the next token
         float* logits = forward(transformer, token, pos);
         next = sample(sampler, logits);
         pos++;
-
-        if (user_idx >= num_prompt_tokens && next != 128009) {
+	    if (user_idx >= num_prompt_tokens && next != 128009 && next != 128001 && next != 128006) {
             // the Assistant is responding, so print its output
             char* piece = decode(tokenizer, token, next);
             safe_printf(piece); // same as printf("%s", piece), but skips "unsafe" bytes
             fflush(stdout);
-	    // init the timer here because the first iteration can be slower
-	    if (start == 0) { start = time_in_ms(); }
+            // init the timer here because the first iteration can be slower
+            if (start == 0) { start = time_in_ms(); }
         }
-        if (next == 2) { printf("\n"); }
+        if (user_idx >= num_prompt_tokens && next == 128009 || next == 128001) {
+            printf("\n");
+        }
     }
     printf("\n");
     // report achieved tok/s (pos-1 because the timer starts after first iteration)
