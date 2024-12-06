@@ -14,7 +14,7 @@ Inference Llama 3.2 1B/3B with one simple 700-line C file ([run.c](run.c)). You 
 First, navigate to the folder where you keep your projects and clone this repository to this folder:
 
 ```bash
-git clone https://github.com/karpathy/llama2.c.git
+git clone https://github.com/Dylan-Harden3/llama3.2.c.git
 ```
 
 Then, open the repository folder:
