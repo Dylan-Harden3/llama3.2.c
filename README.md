@@ -6,7 +6,7 @@ You can see [the original repo](https://github.com/karpathy/llama2.c) for a full
   <img src="assets/llama_cute.jpg" width="300" height="300" alt="Cute Llama">
 </p>
 
-Have you ever wanted to inference a [Llama 3.2]([https://ai.meta.com/llama/](https://www.llama.com/)) model in pure C? No? Well, now you can!
+Have you ever wanted to inference a [Llama 3.2](https://www.llama.com/) model in pure C? No? Well, now you can!
 
 Inference Llama 3.2 1B/3B with one simple 700-line C file ([run.c](run.c)). You might think that you need many billion parameter LLMs to do anything useful, but in fact very small LLMs can have surprisingly strong performance if you make the domain narrow enough (ref: [TinyStories](https://huggingface.co/datasets/roneneldan/TinyStories) paper). This repo is an inference solution for Llama3.2 family LLMs, with focus on minimalism and simplicity.
 
